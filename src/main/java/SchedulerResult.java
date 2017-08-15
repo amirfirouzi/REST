@@ -5,6 +5,7 @@ import java.util.HashMap;
 public class SchedulerResult implements Serializable {
     private boolean completed;
     private Date startTime;
+    //Map: MetricName, Map<SchedulerName, Map<Iteration, Value>>>
     private HashMap<String, HashMap<String, HashMap<Integer, Integer>>> results = new HashMap<String, HashMap<String, HashMap<Integer, Integer>>>();
 
     public SchedulerResult(boolean completed, Date startTime) {
@@ -33,20 +34,20 @@ public class SchedulerResult implements Serializable {
         return results;
     }
 
-    public HashMap<String, HashMap<Integer, Integer>> getSchedulerMetrics(String schedulerName) {
-        return results.get(schedulerName);
+    public HashMap<String, HashMap<Integer, Integer>> getSchedulersOfMetric(String metricName) {
+        return results.get(metricName);
     }
 
-    public HashMap<Integer, Integer> getSchedulerMetricValues(String schedulerName, String metric) {
-        return results.get(schedulerName).get(metric);
+    public HashMap<Integer, Integer> getSchedulerMetricValues(String metricName, String schedulerName) {
+        return results.get(metricName).get(schedulerName);
     }
 
-    public void addScheduler(String schedulerName) {
-        this.results.put(schedulerName, new HashMap<String, HashMap<Integer, Integer>>());
+    public void addMetric(String metricName) {
+        this.results.put(metricName, new HashMap<String, HashMap<Integer, Integer>>());
     }
 
-    public void addSchedulerMetric(String schedulerName, String metricName) {
-        this.results.get(schedulerName).put(metricName, new HashMap<Integer, Integer>());
+    public void addSchedulerForMetric(String metricName, String schedulerName) {
+        this.results.get(metricName).put(schedulerName, new HashMap<Integer, Integer>());
     }
 
 }
