@@ -40,9 +40,6 @@ public class topologyStat {
     }
 
     public static void drawCharts() {
-
-
-
         Map<String, ArrayList<Integer>> points = new HashMap<String, ArrayList<Integer>>();
         for (Map.Entry<String, HashMap<String, HashMap<Integer, Integer>>> metric :
                 schedulerResults.getResults().entrySet()) {
@@ -84,7 +81,6 @@ public class topologyStat {
                         e.printStackTrace();
                     }
                 }
-
             }
         }
     }
@@ -108,7 +104,6 @@ public class topologyStat {
                 String schedulerName = configurationObject.getString("storm.scheduler");
                 String[] elements = schedulerName.split(Pattern.quote("."));
                 schedulerName = elements[elements.length - 1];
-                String metricName = "emitted";
                 int emitted = getTopologyStatMetrics(theTopologyObject, "emitted");
                 int transferred = getTopologyStatMetrics(theTopologyObject, "transferred");
                 iteration++;
@@ -119,6 +114,8 @@ public class topologyStat {
                 if (iteration >= 10) {
                     System.out.println("Saving Stats...");
                     serializeMap(schedulerResults, "results.ser");
+                    if (schedulerResults.isCompleted())
+                        drawCharts();
                 }
             }
         }
