@@ -22,30 +22,35 @@ public class topologyStat {
     static int iteration = 0;
     static int MaxEvaluationCount = 2;
     static SchedulerResult schedulerResults;
+    static int evaluationPeriod = 50;
+    static int samplingGap = 10;
 
     public static void main(String[] args) {
         schedulerResults = deserializeMap("results.ser");
         if (schedulerResults == null) {
             ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
-            exec.scheduleAtFixedRate(new MyTask(), 0, 8, TimeUnit.SECONDS);
+            t = exec.scheduleAtFixedRate(new MetricTask(), 0, 1, TimeUnit.SECONDS);
 //        schedulerResults.setCompleted(true);
 //        serializeMap(schedulerResults,"results.ser");
         } else if (schedulerResults.isCompleted()) {
             drawCharts();
             //TODO: clear current serialized data
         } else {
-            ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
-            exec.scheduleAtFixedRate(new MyTask(), 0, 8, TimeUnit.SECONDS);
+            ScheduledExecutorService metricExec = Executors.newSingleThreadScheduledExecutor();
+            metricExec.scheduleAtFixedRate(new MetricTask(), 0, 1, TimeUnit.SECONDS);
         }
     }
 
     public static void drawCharts() {
         Map<String, ArrayList<Integer>> points = new HashMap<String, ArrayList<Integer>>();
-        for (Map.Entry<String, HashMap<String, HashMap<Integer, Integer>>> metric :
+        for (Map.Entry<String, HashMap<String, HashMap<Integer, Number>>> metric :
                 schedulerResults.getResults().entrySet()) {
 
             // Create Chart
-            CategoryChart chart = new CategoryChartBuilder().width(800).height(600).theme(Styler.ChartTheme.GGPlot2).title(metric.getKey()).xAxisTitle("Time").yAxisTitle("Tuples").build();
+            CategoryChart chart = new CategoryChartBuilder()
+                    .width(1366).height(768)
+                    .theme(Styler.ChartTheme.GGPlot2)
+                    .title(metric.getKey()).xAxisTitle("Time").yAxisTitle("Tuples").build();
             // Customize Chart
             chart.getStyler().setDefaultSeriesRenderStyle(CategorySeries.CategorySeriesRenderStyle.Line);
             chart.getStyler().setXAxisLabelRotation(270);
@@ -55,18 +60,19 @@ public class topologyStat {
 
             boolean sampledXAxis = false;
             System.out.println(String.format("\nMetric: %s", metric.getKey()));
-            for (Map.Entry<String, HashMap<Integer, Integer>> scheduler :
+            //TODO: make it a for loop to effect SamplingGap variable
+            for (Map.Entry<String, HashMap<Integer, Number>> scheduler :
                     schedulerResults.getSchedulersOfMetric(metric.getKey()).entrySet()) {
 
                 List<Integer> x = new ArrayList<Integer>();
-                List<Integer> y = new ArrayList<Integer>();
+                List<Number> y = new ArrayList<Number>();
                 System.out.println(String.format("\tScheduler: %s\n\t\tValues:", scheduler.getKey()));
 
-                for (Map.Entry<Integer, Integer> value :
+                for (Map.Entry<Integer, Number> value :
                         schedulerResults.getSchedulerMetricValues(metric.getKey(), scheduler.getKey()).entrySet()) {
                     x.add(value.getKey());
                     y.add(value.getValue());
-                    System.out.println(String.format("\t\t\tIteration: %d, Value: %d", value.getKey(), value.getValue()));
+                    System.out.println(String.format("\t\t\tUptime: %d, Value: %f", value.getKey(), value.getValue()));
                 }
                 if (!sampledXAxis) {
                     chart.addSeries(scheduler.getKey(), x, y);
@@ -76,7 +82,7 @@ public class topologyStat {
                     chart.addSeries(scheduler.getKey(), x, y);
                     new SwingWrapper<CategoryChart>(chart).displayChart();
                     try {
-                        BitmapEncoder.saveBitmap(chart, "./" + metric.getKey(), BitmapEncoder.BitmapFormat.PNG);
+                        BitmapEncoder.saveBitmap(chart, "./charts/" + metric.getKey(), BitmapEncoder.BitmapFormat.PNG);
                     } catch (IOException e) {
                         e.printStackTrace();
                     }
@@ -85,7 +91,7 @@ public class topologyStat {
         }
     }
 
-    static class MyTask implements Runnable {
+    static class MetricTask implements Runnable {
         JSONObject topologiesObject = getJsonObject("api/v1/topology/summary");
         JSONArray topologiesArray = topologiesObject.getJSONArray("topologies");
 
@@ -94,7 +100,10 @@ public class topologyStat {
             for (int i = 0; i < topologiesArray.length(); i++) {
                 JSONObject jsonObject = topologiesArray.getJSONObject(i);
                 String topoId = jsonObject.getString("id");
+                String topoStatus = jsonObject.getString("status");
 
+                if (!topoStatus.toLowerCase().equals("active"))
+                    continue;
                 JSONObject theTopologyObject = getJsonObject(String.format("api/v1/topology/%s", topoId));
 
                 int uptimeSecond = theTopologyObject.getInt("uptimeSeconds");
@@ -105,17 +114,31 @@ public class topologyStat {
                 String[] elements = schedulerName.split(Pattern.quote("."));
                 schedulerName = elements[elements.length - 1];
                 int emitted = getTopologyStatMetrics(theTopologyObject, "emitted");
-                int transferred = getTopologyStatMetrics(theTopologyObject, "transferred");
-                iteration++;
-                fillSchedulerResult("emitted", schedulerName, timeStamp, iteration, emitted);
-                fillSchedulerResult("transferred", schedulerName, timeStamp, iteration, transferred);
+                if (emitted != -1) {
+                    iteration++;
+                    int transferred = getTopologyStatMetrics(theTopologyObject, "transferred");
+                    double processLatency = getBoltMetrics(theTopologyObject, "processLatency");
+                    double executeLatency = getBoltMetrics(theTopologyObject, "executeLatency");
+                    int executed = getBoltMetricsInt(theTopologyObject, "executed");
+                    double capacity = getBoltMetrics(theTopologyObject, "capacity");
 
-                System.out.println(String.format("Iteration: %d - metric: %d time: %s", iteration, emitted, timeStamp));
-                if (iteration >= 10) {
-                    System.out.println("Saving Stats...");
-                    serializeMap(schedulerResults, "results.ser");
-                    if (schedulerResults.isCompleted())
-                        drawCharts();
+                    fillSchedulerResult("emitted", schedulerName, timeStamp, iteration, emitted, uptimeSecond);
+                    fillSchedulerResult("transferred", schedulerName, timeStamp, iteration, transferred, uptimeSecond);
+                    fillSchedulerResult("processLatency", schedulerName, timeStamp, iteration, processLatency, uptimeSecond);
+                    fillSchedulerResult("executeLatency", schedulerName, timeStamp, iteration, executeLatency, uptimeSecond);
+                    fillSchedulerResult("executed", schedulerName, timeStamp, iteration, executed, uptimeSecond);
+                    fillSchedulerResult("capacity", schedulerName, timeStamp, iteration, capacity, uptimeSecond);
+
+                    System.out.println(String.format("********************************\nIteration: %d at upTime: %s\n********************************", iteration, uptimeSecond));
+                    if (iteration >= evaluationPeriod) {
+                        System.out.println("Saving Stats...");
+                        serializeMap(schedulerResults, "results.ser");
+                        if (schedulerResults.isCompleted())
+                            drawCharts();
+                        t.cancel(false);
+                    }
+                } else {
+                    System.out.println("metrics are not Available Yet! Waiting..., Uptime: " + uptimeSecond);
                 }
             }
         }
@@ -128,13 +151,56 @@ public class topologyStat {
         for (int j = 0; j < topologyStatsArray.length(); j++) {
             stat = topologyStatsArray.getJSONObject(j);
             if (stat.getString("windowPretty").equals("All time")) {
-                metric = stat.getInt(metricName);
+                if (!stat.isNull(metricName))
+                    metric = stat.getInt(metricName);
+                else
+                    return -1;
             }
         }
+        System.out.println(String.format("%s: %d\n", metricName, metric));
         return metric;
     }
 
-    public static void fillSchedulerResult(String metricName, String schedulerName, Date timeStamp, int iteration, int metric) {
+    public static double getBoltMetrics(JSONObject theTopologyObject, String metricName) {
+        System.out.println(metricName + ":");
+        JSONArray boltsArray = theTopologyObject.getJSONArray("bolts");
+        double metric = 0;
+        JSONObject stat;
+        for (int j = 0; j < boltsArray.length(); j++) {
+            stat = boltsArray.getJSONObject(j);
+            if (!stat.isNull(metricName)) {
+                metric += stat.getDouble(metricName);
+                System.out.println(String.format("\tbolt:%s - %s:%1.3f", stat.getString("boltId"),
+                        metricName, stat.getDouble(metricName)));
+            } else
+                return -1;
+        }
+        System.out.println(String.format("Average: %f\n", metric / boltsArray.length()));
+        return metric / boltsArray.length();
+    }
+
+    public static int getBoltMetricsInt(JSONObject theTopologyObject, String metricName) {
+        System.out.println(metricName + ":");
+        JSONArray boltsArray = theTopologyObject.getJSONArray("bolts");
+        int metric = 0;
+        JSONObject stat;
+        for (int j = 0; j < boltsArray.length(); j++) {
+            stat = boltsArray.getJSONObject(j);
+            if (!stat.isNull(metricName)) {
+                metric += stat.getInt(metricName);
+                System.out.println(String.format("\tbolt:%s - %s:%d", stat.getString("boltId"),
+                        metricName, stat.getInt(metricName)));
+            } else
+                return -1;
+        }
+        System.out.println(String.format("Average: %d\n", metric / boltsArray.length()));
+        return metric;
+    }
+
+    public static void fillSchedulerResult(String metricName, String schedulerName, Date timeStamp,
+                                           int iteration, double metric, int uptimeSecond) {
+        if (metric == -1)
+            return;
         //Date timeStamp = new SimpleDateFormat("HH-mm-ss").format(Calendar.getInstance().getTime());
         if (schedulerResults == null)
             schedulerResults = new SchedulerResult(false, timeStamp);
@@ -149,7 +215,7 @@ public class topologyStat {
             schedulerResults.addMetric(metricName);
             schedulerResults.addSchedulerForMetric(metricName, schedulerName);
         }
-        schedulerResults.getSchedulerMetricValues(metricName, schedulerName).put(iteration, metric);
+        schedulerResults.getSchedulerMetricValues(metricName, schedulerName).put(uptimeSecond, metric);
     }
 
     public static SchedulerResult deserializeMap(String filename) {
