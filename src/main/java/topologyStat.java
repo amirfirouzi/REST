@@ -27,6 +27,7 @@ public class topologyStat {
 
     public static void main(String[] args) {
         schedulerResults = deserializeMap("results.ser");
+//        serializeMap(schedulerResults,"results.ser");
         if (schedulerResults == null) {
             ScheduledExecutorService exec = Executors.newSingleThreadScheduledExecutor();
             t = exec.scheduleAtFixedRate(new MetricTask(), 0, 1, TimeUnit.SECONDS);
